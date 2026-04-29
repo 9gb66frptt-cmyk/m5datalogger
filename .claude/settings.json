@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/Thibaut/.platformio/penv/bin/**)",
+      "Bash(~/.platformio/penv/bin/pio run *)",
+      "Bash(ls platformio.ini)",
+      "Bash(which pio *)",
+      "Bash(ipconfig getifaddr *)",
+      "Bash(gh auth *)",
+      "Read(//Users/Thibaut/vs code/m5scanner/**)"
+    ],
+    "additionalDirectories": [
+      "/dev"
+    ]
+  }
+}
