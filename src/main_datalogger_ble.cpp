@@ -40,7 +40,7 @@
 #include <Update.h>
 #include <mbedtls/sha256.h>
 
-#define FW_VERSION "1.0.0-ble"
+#define FW_VERSION "1.0.5-ble"
 
 Preferences prefs;
 
@@ -199,6 +199,9 @@ bool parseProvisioningJson(const String& jsonStr, String& errOut) {
     return true;
 }
 
+// Forward declarations (helpers écran définis plus bas mais utilisés dès l'OTA).
+void wakeScreen();
+
 // ═══════════════════════════════════════════════════════════
 // OTA — download streamé avec vérif SHA-256 optionnelle
 // ═══════════════════════════════════════════════════════════
@@ -207,24 +210,48 @@ bool parseProvisioningJson(const String& jsonStr, String& errOut) {
 // SHA-256 attendu est fourni et ne matche pas, on abort avant Update.end()
 // → la partition reste sur l'ancien firmware, pas de reboot, pas de risque.
 //
+// Suivi manuel des redirects : `HTTPClient::setFollowRedirects` est instable
+// sur ESP32 quand le redirect croise deux hosts HTTPS différents (cas de
+// GitHub Releases : github.com → objects.githubusercontent.com).
+//
 // Renvoie "" si succès (caller doit reboot), sinon un libellé d'erreur court.
 
-static String runOta(const String& url, const String& expectedSha) {
+static String runOta(const String& urlIn, const String& expectedSha) {
+    String url = urlIn;
+    HTTPClient http;
     WiFiClient        plainClient;
     WiFiClientSecure  tlsClient;
-    WiFiClient*       transport;
-    if (url.startsWith("https://")) {
-        tlsClient.setInsecure();
-        transport = &tlsClient;
-    } else {
-        transport = &plainClient;
+    WiFiClient*       transport = nullptr;
+
+    int code = 0;
+    const int MAX_HOPS = 5;
+    int hop = 0;
+    for (; hop < MAX_HOPS; hop++) {
+        if (url.startsWith("https://")) {
+            tlsClient.setInsecure();
+            transport = &tlsClient;
+        } else {
+            transport = &plainClient;
+        }
+
+        if (!http.begin(*transport, url)) return "http-begin";
+        const char* keys[] = {"Location"};
+        http.collectHeaders(keys, 1);
+        http.setUserAgent("ESP32-Datalogger/" FW_VERSION);
+
+        code = http.GET();
+        Serial.printf("[OTA] hop %d -> %d (%s)\n", hop, code, url.c_str());
+
+        if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+            String loc = http.header("Location");
+            http.end();
+            if (loc.length() == 0) return "no-location";
+            url = loc;
+            continue;  // nouvelle iter avec une URL fraiche
+        }
+        break;  // 200 OK ou erreur définitive
     }
-
-    HTTPClient http;
-    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);  // GitHub/S3/CDN
-    if (!http.begin(*transport, url)) return "http-begin";
-
-    int code = http.GET();
+    if (hop >= MAX_HOPS) return "too-many-redirects";
     if (code != HTTP_CODE_OK) {
         http.end();
         return String("http-") + code;
@@ -367,6 +394,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         Serial.printf("[OTA] Demarrage update depuis %s (sha=%s)\n",
                       url.c_str(), sha.length() ? "yes" : "no");
 
+        wakeScreen();
         M5.Display.fillScreen(TFT_BLACK);
         M5.Display.setCursor(5, 20);
         M5.Display.setFont(&fonts::Font4);
@@ -566,7 +594,7 @@ void showIdleScreen() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(5, 10);
     M5.Display.setFont(&fonts::Font4);
-    M5.Display.setTextColor(TFT_GREEN);
+    M5.Display.setTextColor(TFT_WHITE);
     M5.Display.println("DATALOGGER BLE");
     M5.Display.setFont(&fonts::Font2);
     M5.Display.setTextColor(TFT_WHITE);

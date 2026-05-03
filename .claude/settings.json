@@ -7,7 +7,25 @@
       "Bash(which pio *)",
       "Bash(ipconfig getifaddr *)",
       "Bash(gh auth *)",
-      "Read(//Users/Thibaut/vs code/m5scanner/**)"
+      "Read(//Users/Thibaut/vs code/m5scanner/**)",
+      "Bash(shasum -a 256 .pio/build/datalogger-ble/firmware.bin)",
+      "Bash(shasum -a 256 \"/Users/Thibaut/vs code/m5datalogger/.pio/build/datalogger-ble/firmware.bin\")",
+      "Bash(curl -sI -A \"ESP32-Datalogger/1.0.2-ble\" \"https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.0.3-ble/firmware.bin\")",
+      "Bash(curl -sI -A \"Mozilla/5.0\" \"https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.0.3-ble/firmware.bin\")",
+      "Bash(curl -sI -H \"User-Agent:\" \"https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.0.3-ble/firmware.bin\")",
+      "Bash(curl -sI \"https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.0.3-ble/firmware.bin\")",
+      "Bash(curl -sLI -A \"Mozilla/5.0\" \"https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.0.3-ble/firmware.bin\")",
+      "Bash(curl -sD - -A \"Mozilla/5.0\" -o /dev/null \"https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.0.3-ble/firmware.bin\")",
+      "Bash(curl -s \"https://api.github.com/repos/9gb66frptt-cmyk/m5datalogger/releases\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -sI -A \"Mozilla/5.0\" \"https://github.com/9gb66frptt-cmyk/m5datalogger\")",
+      "Bash(curl -sI -A \"Mozilla/5.0\" \"https://github.com/9gb66frptt-cmyk/m5datalogger/releases\")",
+      "Bash(curl -sL \"https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.0.3-ble/firmware.bin\" -o /tmp/github_v103.bin)",
+      "Bash(shasum -a 256 /tmp/github_v103.bin)",
+      "Read(//tmp/**)",
+      "Bash(shasum -a 256 \"/Users/Thibaut/vs code/m5datalogger/.pio/build/datalogger-buffered/firmware.bin\")",
+      "Read(//Users/Thibaut/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/include/mbedtls/esp_crt_bundle/include/**)",
+      "Read(//Users/Thibaut/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/**)"
     ],
     "additionalDirectories": [
       "/dev"
