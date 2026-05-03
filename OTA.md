@@ -1,8 +1,13 @@
-# OTA — procédure pour le datalogger BLE
+# OTA — procédure pour les datalogger M5Stack
 
 Mémo opérationnel pour pousser une mise à jour firmware over-the-air sur un M5Stack
 CoreS3 datalogger déjà déployé. Toutes les URL sont en dur et collent à mon setup
 actuel — adapter le username GitHub et le deviceId pour d'autres devices.
+
+**Firmware de référence aujourd'hui** : `datalogger-qos1` (env PIO du même nom,
+source `src/main_datalogger_qos1.cpp`). Voir `CLAUDE.md` pour les autres
+variantes (`m5stack-cores3`, `datalogger-ble`, `datalogger-buffered`) qui
+suivent la même procédure OTA — seul le path du `.bin` change.
 
 ## Références
 
@@ -14,35 +19,36 @@ actuel — adapter le username GitHub et le deviceId pour d'autres devices.
 - **Topic commandes** : `datalogger/command/datalogger-B93824`
 - **Topic monitoring** : `datalogger/#` (heartbeats + status)
 - **Pattern URL release** : `https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/<TAG>/firmware.bin`
-- **Path .bin local** : `/Users/Thibaut/vs code/m5datalogger/.pio/build/datalogger-ble/firmware.bin`
+- **Path .bin local** (firmware de réf) : `/Users/Thibaut/vs code/m5datalogger/.pio/build/datalogger-qos1/firmware.bin`
+- **Path .bin local** (BLE pour info) : `/Users/Thibaut/vs code/m5datalogger/.pio/build/datalogger-ble/firmware.bin`
 
 ## Procédure complète, version courte
 
-1. Modifier le code (au minimum bumper `FW_VERSION` dans `main_datalogger_ble.cpp`)
-2. Build dans VS Code (icône ✓ PlatformIO, env `datalogger-ble`)
+1. Modifier le code (au minimum bumper `FW_VERSION` dans `main_datalogger_qos1.cpp`)
+2. Build dans VS Code (icône ✓ PlatformIO, env `datalogger-qos1`)
 3. **Calculer le SHA-256 juste avant l'upload** (pas en avance — PIO peut rebuild en arrière-plan) :
    ```
-   shasum -a 256 .pio/build/datalogger-ble/firmware.bin
+   shasum -a 256 .pio/build/datalogger-qos1/firmware.bin
    ```
 4. Sur GitHub, créer une nouvelle Release :
    https://github.com/9gb66frptt-cmyk/m5datalogger/releases/new
-   - Tag : `v1.X.Y-ble`
-   - Title : `Datalogger BLE 1.X.Y — <changement visible>`
-   - Description : coller le SHA-256
+   - Tag : `v1.X.Y-qos1` (ou `-ble` / `-buffered` selon l'env utilisé)
+   - Title : `Datalogger 1.X.Y — <changement visible>`
+   - Description : coller le SHA-256 + `FW_VERSION` exact attendu dans le heartbeat
    - Attach binaries → drag-drop `firmware.bin` depuis le Finder
    - **Publish release** (pas Save draft)
 5. Si le repo est privé, **flipper en public** : Settings → Danger Zone → Change visibility → Make public
 6. **Vérifier le SHA après upload** (le `.bin` peut avoir bougé entre étape 3 et 4) :
    ```
-   curl -sL "https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.X.Y-ble/firmware.bin" | shasum -a 256
+   curl -sL "https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.X.Y-qos1/firmware.bin" | shasum -a 256
    ```
    Ce SHA est celui à mettre dans le payload OTA.
 7. Dans la console web HiveMQ, section **Send Message** :
    - Topic : `datalogger/command/datalogger-B93824`
-   - QoS : 0
+   - QoS : 0 (la cmd est livrée en QoS 1 si abonné en QoS 1, le min des deux)
    - Message :
      ```json
-     {"cmd":"ota","url":"https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.X.Y-ble/firmware.bin","sha256":"<sha-de-l-etape-6>"}
+     {"cmd":"ota","url":"https://github.com/9gb66frptt-cmyk/m5datalogger/releases/download/v1.X.Y-qos1/firmware.bin","sha256":"<sha-de-l-etape-6>"}
      ```
 8. Surveiller dans la zone Subscriptions (abonné à `datalogger/#`) :
    - `datalogger/status` → `{"status":"ota-started",...,"shaCheck":true}`

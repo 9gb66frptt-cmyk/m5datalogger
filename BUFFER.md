@@ -1,8 +1,15 @@
 # Buffer LittleFS — résilience des cycles RS-232
 
-Variante `datalogger-buffered` du firmware datalogger RS-232. Identique
-fonctionnellement à `m5stack-cores3` (RS-232 + provisioning QR), mais avec
-persistance des cycles d'autoclave en flash quand MQTT est down.
+Mécanisme de persistance flash partagé par les variantes
+**`datalogger-buffered`** et **`datalogger-qos1`** (les deux contiennent le
+même code de buffer, seule la couche MQTT diffère — voir `CLAUDE.md` pour
+la matrice des variantes). Identique fonctionnellement à `m5stack-cores3`
+(RS-232 + provisioning QR), mais avec persistance des cycles d'autoclave
+en flash quand MQTT est down.
+
+> **Recommandé en prod** : `datalogger-qos1` (buffer LittleFS + MQTT QoS 1
+> + session persistante). `datalogger-buffered` reste utile comme fallback
+> stable si arduino-mqtt pose problème un jour.
 
 ## Pourquoi cette variante existe
 
@@ -158,37 +165,42 @@ L'OTA fonctionne identiquement à la variante BLE : Release GitHub +
 commande MQTT sur `datalogger/command/datalogger-XXXXXX`. Voir `OTA.md`
 pour la procédure complète.
 
-## Quand passer à AsyncMqttClient/QoS 1
+## Migration QoS 1 — faite
 
-À envisager le jour où :
-- On constate des pertes silencieuses confirmées (cycle apparu sur le M5,
-  pas reçu côté iPad, fichier supprimé du buffer)
-- On déploie en cabinet médical où la traçabilité des cycles est légalement
-  requise (norme EN 13060 / FDA 21 CFR Part 820 / etc.)
-- On veut garantir l'unicité de chaque cycle sans dédup côté iPad
+Cette section listait initialement les conditions de migration vers QoS 1.
+**C'est fait** dans la variante `datalogger-qos1` (lib `256dpi/arduino-mqtt`,
+publish cycles en QoS 1, session persistante côté broker, keep-alive 15 s
+pour détection LWT rapide). Le buffer LittleFS reste en place comme filet
+de sécurité.
 
-C'est ~3-4 jours de travail (lib swap + queue management côté firmware) et
-ça simplifie la dédup côté iPad.
+Tentative initiale avec `esp_mqtt_client` (ESP-IDF natif) abandonnée :
+arduino-esp32 v2.0.14 exige un trust anchor TLS strict, le bundle Mozilla
+n'est pas embarqué par défaut, et après ajout d'un cert hardcodé on tombait
+sur des conflits de session persistante (`connect_return_code=5`).
+`arduino-mqtt` ré-utilise `WiFiClientSecure setInsecure()` exactement comme
+PubSubClient → TLS marche, et la lib supporte vraiment QoS 1.
 
 ## Coexistence avec les autres variantes
 
-Trois envs cohabitent dans `platformio.ini` :
+Quatre envs cohabitent dans `platformio.ini` :
 
-| Env | Source | Provisioning | Buffer |
-|---|---|---|---|
-| `m5stack-cores3` | `main_datalogger.cpp` | QR | ❌ (perte si MQTT down) |
-| `datalogger-ble` | `main_datalogger_ble.cpp` | BLE | ❌ (pas de cycles RS-232) |
-| `datalogger-buffered` | `main_datalogger_buffered.cpp` | QR | ✅ LittleFS |
+| Env | Source | Provisioning | Buffer | MQTT |
+|---|---|---|---|---|
+| `m5stack-cores3` | `main_datalogger.cpp` | QR | ❌ | PubSubClient (QoS 0) |
+| `datalogger-ble` | `main_datalogger_ble.cpp` | BLE | n/a | PubSubClient (QoS 0) |
+| `datalogger-buffered` | `main_datalogger_buffered.cpp` | QR | ✅ | PubSubClient (QoS 0) |
+| **`datalogger-qos1`** | **`main_datalogger_qos1.cpp`** | **QR** | **✅** | **arduino-mqtt (QoS 1)** |
 
-`datalogger-buffered` est destinée à remplacer `m5stack-cores3` une fois
-validée. Tant qu'elle est en test, garder les deux permet de revenir à la
-version stable rapidement par re-flash USB.
+`datalogger-qos1` est le firmware de référence pour la prod. Garder les autres
+envs permet un rollback rapide par re-flash USB si nécessaire.
 
 ## Référence rapide
 
-- **Build** : SHA-256 de la 1ère build = `7fa6c6ae34144894af40d53fe042ea87ccdc0e2346a43fafa0186fb78941a437`
-  (à recalculer à chaque build, voir `OTA.md` étape 6)
 - **Partition** : LittleFS par défaut sur ESP32 Arduino, ~1.5 MB libres
-- **Topic d'output** : `datalogger/data` (identique à la version sans buffer)
+- **Topic d'output** : `datalogger/data` (identique entre toutes les variantes)
+- **Format payload cycle** : JSON avec `device`, `type:"rs232-cycle"`, `cabinetId`,
+  `autoclaveName/Serial`, `timestamp`, `data` (ticket RS-232 brut),
+  `durationSeconds`, `lineCount`, `cycleNumber` (si parsé)
+- **SHA `.bin`** : à recalculer à chaque build (voir `OTA.md` étape 6)
 - **NVS namespace** : `stery-dl` (partagé avec `m5stack-cores3`, donc le
   reprov fonctionne entre les deux)

@@ -27,7 +27,7 @@
 // Module QR pour provisioning
 #include <M5ModuleQRCode.h>
 
-#define FW_VERSION "1.2.0-qos1"
+#define FW_VERSION "1.2.2-qos1"
 
 Preferences prefs;
 
@@ -129,6 +129,7 @@ enum QRFragResult { QR_PARSED_OK, QR_PARTIAL, QR_INVALID_FORMAT, QR_NOT_PROVISIO
 
 // ─── Dernier cycle transmis (volatile, "Aucun" au boot) ───
 String lastCycleDisplay = "Aucun";
+String lastCycleNumber  = "";   // extrait du ticket RS-232 si reconnu
 
 // ═══════════════════════════════════════════════════════════
 // NVS : sauvegarde / chargement de la configuration
@@ -435,7 +436,11 @@ void showIdleScreen() {
     M5.Display.setFont(&fonts::Font2);
     M5.Display.setTextColor(TFT_DARKGREY);
     M5.Display.setCursor(10, 120);
-    M5.Display.print("Dernier cycle transmis:");
+    if (lastCycleNumber.length() > 0) {
+        M5.Display.printf("Dernier cycle  #%s :", lastCycleNumber.c_str());
+    } else {
+        M5.Display.print("Dernier cycle transmis:");
+    }
 
     M5.Display.setFont(&fonts::Font4);
     M5.Display.setTextColor(TFT_WHITE);
@@ -590,10 +595,13 @@ bool tryConnectMqtt() {
     // Will configuré avant connect() (arduino-mqtt API).
     mqtt.setWill(TOPIC_STATUS, lwtMessage.c_str(), true /*retained*/, 1 /*qos*/);
 
-    // Keep-alive 60s, clean_session = false (session persistante côté broker
-    // → l'iPad-collector peut rater des heartbeats sans rien perdre des
-    //   commandes envoyées ; symétriquement pour ce client).
-    mqtt.setOptions(60 /*keepAlive*/, false /*cleanSession*/, 5000 /*timeout*/);
+    // Keep-alive 15s : le broker détecte la déco en ~1.5 × keepalive = 22s
+    // (convention MQTT 3.1.1) au lieu des 90s (1m30) qu'on avait avec 60s.
+    // → LWT "offline" arrive sur l'iPad ~22s après une vraie déco du device.
+    // Coût : 1 PINGREQ toutes les 15s (~12 octets), négligeable.
+    // clean_session = false : session persistante côté broker (le broker garde
+    // les commandes vers ce device pendant ses déconnexions).
+    mqtt.setOptions(15 /*keepAlive*/, false /*cleanSession*/, 5000 /*timeout*/);
 
     if (!mqtt.connect(deviceId.c_str(), cfgMqttUser.c_str(), cfgMqttPass.c_str())) {
         Serial.printf("[MQTT] connect fail returnCode=%d lastError=%d\n",
@@ -804,10 +812,63 @@ void sendHeartbeat() {
     Serial.printf("[HB] %s\n", payload);
 }
 
+// Cherche un numéro de cycle dans le ticket RS-232. Tolérant à plusieurs
+// formats courants (Cycle Number / N° cycle / Cycle # / Cycle: / etc.).
+// Renvoie "" si aucun pattern reconnu.
+//
+// Le parsing se fait sur une copie en MAJUSCULES pour matcher case-insensitive,
+// puis on extrait les chiffres depuis la position trouvée dans la chaîne d'origine.
+static String extractCycleNumber(const String& payload) {
+    String upper = payload;
+    upper.toUpperCase();
+
+    static const char* patterns[] = {
+        "CYCLE NUMBER",
+        "CYCLE NUMERO",
+        "CYCLE NUM\xC3\x89RO",      // CYCLE NUMÉRO (UTF-8 É)
+        "NUMERO DE CYCLE",
+        "NUM\xC3\x89RO DE CYCLE",   // NUMÉRO DE CYCLE
+        "N\xC2\xB0 DE CYCLE",       // N° de cycle (UTF-8 °)
+        "N\xC2\xB0 CYCLE",
+        "N\xC2\xB0CYCLE",
+        "NO. CYCLE",
+        "NO CYCLE",
+        "CYCLE NO.",
+        "CYCLE NO",
+        "CYCLE #",
+        "CYCLE:",
+        "CYCLE :",
+    };
+    const int npatterns = sizeof(patterns) / sizeof(patterns[0]);
+
+    for (int i = 0; i < npatterns; i++) {
+        int idx = upper.indexOf(patterns[i]);
+        if (idx < 0) continue;
+        int p = idx + strlen(patterns[i]);
+        // Sauter séparateurs jusqu'au premier chiffre (max 12 chars pour ne pas
+        // dériver dans la ligne suivante si le pattern matche par accident)
+        int limit = p + 12;
+        while (p < (int)payload.length() && p < limit &&
+               !isdigit((unsigned char)payload[p])) p++;
+        if (p >= (int)payload.length() || !isdigit((unsigned char)payload[p])) continue;
+        int start = p;
+        while (p < (int)payload.length() && isdigit((unsigned char)payload[p])) p++;
+        return payload.substring(start, p);
+    }
+    return "";
+}
+
 // Envoi des données brutes d'un cycle terminé en QoS 1 (le broker ACK).
 // Si publish échoue (WiFi/MQTT down ou pas d'ACK), on persiste en LittleFS
 // pour retry au prochain flushOnePending().
 void sendCycleData(const String& rawData) {
+    // Extraire le numéro de cycle pour affichage local (best-effort).
+    String cn = extractCycleNumber(rawData);
+    if (cn.length() > 0) {
+        lastCycleNumber = cn;
+        Serial.printf("[CYCLE] Numero detecte : #%s\n", cn.c_str());
+    }
+
     JsonDocument doc;
     doc["device"]          = deviceId;
     doc["type"]            = "rs232-cycle";
@@ -818,6 +879,7 @@ void sendCycleData(const String& rawData) {
     doc["data"]            = rawData;
     doc["durationSeconds"] = (millis() - cycleStartTime) / 1000;
     doc["lineCount"]       = totalLinesReceived;
+    if (cn.length() > 0) doc["cycleNumber"] = cn;
 
     String payload;
     serializeJson(doc, payload);
